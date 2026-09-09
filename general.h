@@ -74,9 +74,10 @@ extern "C" {
  *============================================================================*/
 
 /**
- * @brief  Simple blocking microsecond delay using CPU cycles
- * @param  delay: Delay in microseconds
- * @note   Busy-wait delay, approximate 6 cycles per microsecond at 275 MHz
+ * @brief  Microsecond delay using DWT cycle counter (most accurate)
+ * @param  us: Delay in microseconds
+ * @note   Requires DWT_CYCCNT to be enabled
+ *         This is the most accurate method for STM32H7
  */
 void delay_us(uint32_t delay);
 
