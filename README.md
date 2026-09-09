@@ -4,7 +4,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Platform](https://img.shields.io/badge/Platform-STM32CubeIDE-orange.svg)
 
-A comprehensive general-purpose utility library for STM32H7 microcontrollers, providing hardware abstraction, bi-color LED control, rotary encoder handling, key debouncing, timing utilities, and debugging support.
+A comprehensive general-purpose utility library for STM32H7 microcontrollers, providing hardware abstraction, RGY 3-pin LED control, rotary encoder handling, key debouncing, timing utilities, and debugging support.
 
 ## 📋 Table of Contents
 
