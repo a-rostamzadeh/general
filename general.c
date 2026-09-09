@@ -20,18 +20,39 @@ static uint16_t debug_msg_counter = 0;
  *============================================================================*/
 
 /**
- * @brief  Simple blocking microsecond delay using CPU cycles
- * @param  delay: Delay in microseconds
- * @note   Busy-wait delay, not suitable for precise timing
- *         Approximate: 6 cycles per microsecond at 275 MHz
+ * @brief  Microsecond delay using DWT cycle counter (most accurate)
+ * @param  us: Delay in microseconds
+ * @note   Requires DWT_CYCCNT to be enabled
+ *         This is the most accurate method for STM32H7
  */
-void delay_us(uint32_t delay)
+void delay_us(uint32_t us)
 {
-    uint32_t ticks = delay * 6U;  /* Approximate cycles per microsecond */
-    volatile uint32_t counter = 0;
-    while (counter < ticks) {
-        counter++;
+    // Get CPU frequency (HAL defined)
+    uint32_t cpu_freq_mhz = HAL_RCC_GetSysClockFreq() / 1000000UL;
+    
+    // Calculate required cycles
+    uint32_t cycles = us * cpu_freq_mhz;
+    
+    // Get current cycle count
+    uint32_t start = DWT->CYCCNT;
+    
+    // Wait for required cycles
+    while ((DWT->CYCCNT - start) < cycles) {
+        // Busy wait
+        __NOP();
     }
+}
+
+/**
+ * @brief  Initialize DWT for cycle counting
+ * @note   Call this once at startup
+ */
+void DWT_Init(void)
+{
+    // Enable DWT cycle counter
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 }
 
 /**
