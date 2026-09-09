@@ -5,7 +5,7 @@
 ![Platform](https://img.shields.io/badge/Platform-STM32CubeIDE-orange.svg)
 ![Version](https://img.shields.io/badge/Version-1.0.0-blue.svg)
 
-A comprehensive hardware abstraction and utility library for STM32H7 microcontrollers, providing unified interfaces for LED control, rotary encoder handling, key debouncing, timing utilities, and debugging support.
+A comprehensive hardware abstraction and utility library for STM32H7 microcontrollers, providing unified interfaces for RGY 2-pin LED control, rotary encoder handling, key debouncing, timing utilities, and debugging support.
 
 ## 📋 Table of Contents
 
