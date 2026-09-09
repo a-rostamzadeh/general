@@ -1,158 +1,236 @@
-/*
- * general.h
- *
- *  Created on: Aug 20, 2020
- *  Author: a.rostamzadeh@gmail.com
- */
-
-#ifndef INC_GENERAL_H_
-#define INC_GENERAL_H_
+/* Define to prevent recursive inclusion */
+#ifndef __GENERAL_H
+#define __GENERAL_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include "main.h"
-#include "usart.h"
+ 
+#include "main.h"  
+#include <stdio.h> 
+#include <stdbool.h>  
+#include <stdarg.h>  
 #include <string.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdbool.h>
-	
-#define CHECK_BIT(var,pos) ((var) & (1<<(pos)))	
+#include "serial.h"
+#include "stm32h7xx_it.h"
+
+/*============================================================================
+ *                              MACROS & DEFINES
+ *============================================================================*/
+
+/* Pin manipulation macros */
+#define pin_Pin(pin)           (pin##_Pin)
+#define pin_Pin_A(pin)         (pin##A_Pin) 
+#define pin_Pin_B(pin)         (pin##B_Pin) 
+#define Pin_state(state)       (GPIO_PIN_##state)  
+
+#define READ_PIN(pin)           HAL_GPIO_ReadPin(pin##_GPIO_Port, pin_Pin(pin))
+#define WRITE_PIN(pin, state)   HAL_GPIO_WritePin(pin##_GPIO_Port, pin_Pin(pin), Pin_state(state))
+#define WRITE_PIN_S(pin, state) HAL_GPIO_WritePin(pin##_GPIO_Port, pin_Pin(pin), state)
+#define WRITE_PIN_SA(pin, state) HAL_GPIO_WritePin(pin##A_GPIO_Port, pin_Pin_A(pin), state)
+#define WRITE_PIN_SB(pin, state) HAL_GPIO_WritePin(pin##B_GPIO_Port, pin_Pin_B(pin), state)
+#define TOGGLE_PIN(pin)         HAL_GPIO_TogglePin(pin##_GPIO_Port, pin_Pin(pin))
+
+/* Bit manipulation macros */
+#define BIT_SET(byte, nbit)     ((byte)  |=  (1U << (nbit)))
+#define BIT_CLEAR(byte, nbit)   ((byte)  &= ~(1U << (nbit)))
+#define BIT_FLIP(byte, nbit)    ((byte)  ^=  (1U << (nbit)))
+#define BIT_CHECK_W(word, nbit) ((word)  &   ((uint16_t)1U << (nbit)))
+#define BIT_CHECK_DW(dword, nbit) ((dword) & ((uint32_t)1U << (nbit)))
+#define CHECK_BIT(var, pos)     ((var) & (1U << (pos)))
+  
+/* Timer clock frequency for STM32H7 (275 MHz) */
+#define TIMER_CLOCK_FREQUENCY_HZ  275000000UL
+
+/* Unique Device ID start address for STM32H7 */
+#define UDID_START  0x1FF1E800UL
+
+/*============================================================================
+ *                         ENCODER DEFINITIONS
+ *============================================================================*/
+
+/**
+ * @brief  Encoder type definitions
+ * @note   These define the available rotary encoders in the system
+ *         Each encoder is mapped to a specific hardware timer
+ */
+#define FIRST_ENC    0  /* First encoder (e.g., F control) */
+#define SECOND_ENC   1  /* Second encoder (e.g., S control) */
+#define THIRD_ENC    2  /* Third encoder (e.g., T control) */
+
+
+/*============================================================================
+ *                         LED CONTROL MACROS
+ *============================================================================*/
+
+/* LED control macros - 3 representative examples */
+#define CASE_LED_WRITE(lede)     case lede: WRITE_PIN_S(lede, state); break
+#define CASE_LED_WRITE_CR(lede)  case lede: WRITE_PIN_SA(lede, state); WRITE_PIN_SB(lede, nstate); break
+#define CASE_LED_WRITE_CG(lede)  case lede: WRITE_PIN_SA(lede, nstate); WRITE_PIN_SB(lede, state); break
+#define CASE_LED_WRITE_CN(lede)  case lede: WRITE_PIN_SA(lede, nstate); WRITE_PIN_SB(lede, nstate); break
+
+/*============================================================================
+ *                         FUNCTION PROTOTYPES
+ *============================================================================*/
+
+/**
+ * @brief  Simple blocking microsecond delay using CPU cycles
+ * @param  delay: Delay in microseconds
+ * @note   Busy-wait delay, approximate 6 cycles per microsecond at 275 MHz
+ */
+void delay_us(uint32_t delay);
+
+/**
+ * @brief  Check if a specified time interval has elapsed
+ * @param  tick: Pointer to the last recorded tick value (modified)
+ * @param  update_rate_ms: Time interval in milliseconds
+ * @return 1 if elapsed, 0 otherwise
+ */
+uint8_t isTimeElapsed(volatile uint32_t *tick, uint32_t update_rate_ms);
+
+/**
+ * @brief  Read rotary encoder position from timer counter
+ * @param  ch: Channel number
+ * @param  enc: Encoder type (FIRST_ENC, SECOND_ENC, THIRD_ENC, FOURTH_ENC)
+ * @param  jitter: If true, adds artificial jitter for testing
+ * @return Encoder position (counter value >> 2)
+ */
+uint32_t readRotaryEncoder(uint8_t ch, uint8_t enc, bool jitter);
+
+/**
+ * @brief  Get rotary encoder rotation direction
+ * @param  ch: Channel number
+ * @param  enc: Encoder type (FIRST_ENC, SECOND_ENC, THIRD_ENC, FOURTH_ENC)
+ * @note   Updates global arrays: values_by_encoders, encoder_rotation
+ */
+void getRotaryEncoderDirection(uint8_t ch, uint8_t enc);
+
+/**
+ * @brief  Test key press/release state and trigger actions
+ * @param  port: GPIO port
+ * @param  pin: GPIO pin
+ * @param  key_num: Key number (index)
+ */
+void testKey(GPIO_TypeDef *port, uint16_t pin, uint8_t key_num);
+
+/**
+ * @brief  Check if a string contains only whitespace characters
+ * @param  str: Pointer to the string to check
+ * @return true if only whitespace or empty, false otherwise
+ */
+bool isOnlyAsciiWhiteSpace(char *str);
+
+/**
+ * @brief  Read the unique device serial number from Flash
+ * @param  address: Offset address within the UDID area (0-11)
+ * @return 32-bit value from the specified address
+ */
+uint32_t flash_func_read_serialnumber(uint32_t address);
+
+/**
+ * @brief  Set a single LED state
+ * @param  led: LED identifier
+ * @param  state: GPIO_PIN_SET or GPIO_PIN_RESET
+ * @param  color: Color (GREEN_COLOR, RED_COLOR, YELLOW_COLOR, NO_COLOR)
+ */
+void ledSet(uint8_t led, GPIO_PinState state, uint8_t color);
+
+/**
+ * @brief  Set bi-color LED to red or green
+ * @param  led: LED identifier
+ * @param  color: 0 = red, 1 = green
+ */
+void ledSetRedGreen(uint8_t led, uint8_t color);
+
+/**
+ * @brief  Set LED color and update register
+ * @param  led: LED identifier
+ * @param  color: Color to set (GREEN_COLOR, RED_COLOR, YELLOW_COLOR, NO_COLOR)
+ */
+void ledColorSet(uint8_t led, uint8_t color);
+
+/**
+ * @brief  Clear all stage LEDs (8 LEDs)
+ * @param  ics: If non-zero, also clear stage LEDs 9-16
+ */
+void clearAllStagesLEDs(uint8_t ics);
+
+/**
+ * @brief  Turn LED on with red color
+ * @param  led: LED identifier
+ */
+void ledOnRed(uint8_t led);
+
+/**
+ * @brief  Turn LED on with green color
+ * @param  led: LED identifier
+ */
+void ledOnGreen(uint8_t led);
+
+/**
+ * @brief  Turn LED on with yellow color
+ * @param  led: LED identifier
+ */
+void ledOnYellow(uint8_t led);
+
+/**
+ * @brief  Set timer frequency by configuring prescaler and auto-reload
+ * @param  htim: Timer handle
+ * @param  frq_Hz: Desired frequency in Hz
+ */
+void timerSetFreq(TIM_HandleTypeDef *htim, uint32_t frq_Hz);
 
 #ifdef DEBUG_MODE
-#define  TX_BUF_COL     50  //max number of messages
-#define  TX_BUF_ROW     100 //max length of each message
-#if (TX_BUF_COL < 1 || TX_BUF_COL > 254)
-#error "TX_BUF_COL is out of range!"
-#endif
-#if (TX_BUF_ROW < 1 || TX_BUF_ROW > 254)
-#error "TX_BUF_ROW is out of range!"
-#endif
-extern uint8_t tX_buff[TX_BUF_COL][TX_BUF_ROW], tx_buff_counter, sendTxBufferMutex ;
+/**
+ * @brief  Debug message handler with formatting and buffering
+ * @param  debug: Debug level (enables/disables output)
+ * @param  time: If non-zero, prepend timestamp to message
+ * @param  counter: Message counter limit (0 = infinite)
+ * @param  send_now: If true, send buffer immediately
+ * @param  format: printf-style format string
+ * @param  ...: Variable arguments for format string
+ */
+void debug_msg(uint8_t debug, uint8_t time, uint16_t counter, bool send_now,
+               const char *format, ...);
+
+/**
+ * @brief  Convert a number to binary string (debugging)
+ * @param  n: Number to convert
+ * @param  bits: Number of bits to display
+ * @return Pointer to static binary string
+ */
+char *printBinary(uint64_t n, uint8_t bits);
 #endif
 
+/*============================================================================
+ *                         EXTERNAL VARIABLES
+ *============================================================================*/
+
+/* External variables used by the functions */
+extern volatile uint8_t just_pressed_key[];
+extern volatile uint8_t just_released_key[];
+extern volatile uint8_t pressed_key_action[];
+extern volatile uint8_t released_key_action[];
+extern volatile uint8_t pressed_shifted_key_action[];
+extern volatile uint8_t released_shifted_key_action[];
+extern volatile uint8_t rotated_key_action[];
+extern volatile bool secondary_btns;
+extern volatile int32_t signals[];
+extern volatile int32_t values_by_encoders[MAX_CHANNELS_NUM][MAX_ENCODER];
+extern volatile int32_t encoder_rotation[MAX_CHANNELS_NUM][MAX_ENCODER];
+extern volatile uint8_t led_reg[];
+extern volatile uint8_t led_color[];
+extern volatile uint8_t encoder_rotation_signal[];
+
+/* Debug buffer externals */
 #ifdef DEBUG_MODE
-void debug_msg(uint8_t debug, uint8_t time, uint32_t counter,
-		char const *format, ...) ;
-#else
-#define debug_msg(...)
+extern char *tX_buff[];
+extern volatile uint8_t tx_buff_counter;
+extern volatile uint8_t TX_BUF_ROW;
+extern volatile uint8_t TX_BUF_COL;
 #endif
-
-void testButton(GPIO_TypeDef *port, uint16_t pin, uint8_t *glitch_protection,
-		uint8_t *pressed, uint8_t *last_pressed, uint8_t *just_pressed);
-
-#define isInRaisingEdge(port, pin) 			readDigitalPin(port, pin)
-#define isInFallingEdge(port, pin) 			(!readDigitalPin(port, pin))
-#define disablePin(port, pin)				setPinAsInput(port, pin)
-#define setPinHighImpedance(port, pin)		setPinAsInput(port, pin)
-#define setPinHigh(port, pin)				HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET);
-#define setPinLow(port, pin)				HAL_GPIO_WritePin(port, pin, GPIO_PIN_RESET);
-	
-static inline uint8_t compareAndSetIfChange(uint16_t * last, uint16_t current, uint16_t hystersis)
-{
-  if((*last > current+hystersis)||(*last +hystersis < current)){
-    *last  = current;  
-    return 1;
-  }
-  return 0;  
-}	
-
-static inline uint8_t readDigitalPin(GPIO_TypeDef *port, uint16_t pin)
-{
-  if( HAL_GPIO_ReadPin(port, pin)==GPIO_PIN_SET )
-	  return 1;
-  return 0;
-}
-
-static inline void blinkLedInTimer(uint32_t timer_frq_hz,
-		uint32_t blink_frq_hz) {
-	static uint32_t frq_hz = 0, cnt;
-	if (frq_hz == 0){
-		if(blink_frq_hz==0) return;
-		cnt = (timer_frq_hz / blink_frq_hz) >> 1;
-	}
-	if (++frq_hz >= cnt) {
-		frq_hz = 0;
-		HAL_GPIO_TogglePin(StatusLED_GPIO_Port, StatusLED_Pin);
-	}
-}
-
-#ifdef DEBUG_MODE
-static inline void rotateVal(uint8_t *val, uint8_t min, uint8_t max) {
-	(*val)++;
-	if (*val > max)
-		*val = min;
-}
-#endif
-
-#ifdef DEBUG_MODE
-static inline void sendTxBuffer(void) {
-	if(sendTxBufferMutex == 0){
-		sendTxBufferMutex = 1;
-		static unsigned char last_tx_buff_counter = 0;
-
-		while (last_tx_buff_counter != tx_buff_counter) {
-			HAL_UART_Transmit(&huart1, tX_buff[last_tx_buff_counter],
-					strlen((const char*) tX_buff[last_tx_buff_counter]), 1000);
-			rotateVal(&last_tx_buff_counter, 0, TX_BUF_COL - 1);
-		}
-		sendTxBufferMutex = 0;
-	}
-}
-#endif
-
-static inline void setPinAsInput(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin) {
-	GPIO_InitTypeDef GPIO_InitStruct = { 0 };
-	GPIO_InitStruct.Pin = GPIO_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	HAL_GPIO_DeInit(GPIOx, GPIO_Pin);
-	HAL_GPIO_Init(GPIOx, &GPIO_InitStruct);
-}
-
-static inline void setPinAsOutput(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin,
-		GPIO_PinState PinState) {
-	GPIO_InitTypeDef GPIO_InitStruct = { 0 };
-	HAL_GPIO_WritePin(GPIOx, GPIO_Pin, PinState);
-	GPIO_InitStruct.Pin = GPIO_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	HAL_GPIO_Init(GPIOx, &GPIO_InitStruct);
-}
-
-static inline uint8_t isTimeElapsed(uint32_t * tick, uint32_t update_rate_ms)
-{
-  uint32_t now = HAL_GetTick();
-  if((now - *tick > update_rate_ms) || (*tick > now)){
-    *tick = now;  
-    return 1;
-  }
-  return 0;
-}
-	
-static inline void incTillLimit(uint8_t * val, uint8_t limit)
-{
-  (*val)++;    
-  if(*val > limit)
-    *val = limit;    
-}
-
-static inline void decTillLimit(uint8_t * val, uint8_t limit)
-{
-  (*val)--;   
-  if(limit==0){
-    if(*val > 254)
-      *val = 0;      
-  }else{
-    if(*val < limit)
-      *val = limit;     
-  }  
-}	
 
 #ifdef __cplusplus
 }
 #endif
-#endif /* INC_GENERAL_H_ */
+#endif /* __GENERAL_H */
