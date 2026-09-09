@@ -128,6 +128,48 @@ bool isOnlyAsciiWhiteSpace(char *str);
 uint32_t flash_func_read_serialnumber(uint32_t address);
 
 /**
+ * @brief  Blink an LED with configurable timing and default state
+ * @param  led: LED identifier to blink
+ * @param  btn_blink: Pointer to blink counter (-1 for infinite, >0 for count)
+ * @param  btn_blink_time: Pointer to last blink time (modified)
+ * @param  btn_blink_state: Pointer to current blink state (true=ON, false=OFF)
+ * @param  btn_default_state: Pointer to default LED state (true=ON, false=OFF)
+ * @note   Blinks at 150ms intervals
+ *         When btn_blink reaches 0, LED returns to default state
+ */
+
+void blinkLED(uint8_t led, int8_t *btn_blink, uint32_t *btn_blink_time, 
+                     bool *btn_blink_state, volatile bool *btn_default_state);
+					 
+/**
+ * @brief  Drive yellow LEDs with alternating red/green pattern at 1000Hz
+ * @note   Yellow color achieved by time-division multiplexing
+ *         Pattern: R G G G R G G G R G G G
+ */
+void driveYellowLeds(void);
+
+/**
+ * @brief  Generate a periodic pulse waveform for LED dimming
+ * @param  led_state_count: Pointer to counter tracking pulse position
+ * @param  led_state: Pointer to current LED state (0=OFF, 1=ON)
+ * @param  change: Pointer to flag indicating state change
+ * @param  switch_time: Time when LED turns OFF (pulse width)
+ * @param  max_time: Total period (cycle length)
+ * @note   Creates a PWM-like signal: ON for 'switch_time' counts, OFF for rest
+ *         Example: switch_time=2, max_time=4 → 50% duty cycle
+ */
+void getLedState(uint16_t *led_state_count, uint8_t *led_state, 
+                        uint8_t *change, uint16_t switch_time, uint16_t max_time);
+
+/**
+ * @brief  Update stage LEDs with dimming effect at 1000Hz
+ * @note   Creates dimming effect by PWM at 25% duty cycle
+ *         ON for 2 counts, OFF for 2 counts (4 count period)
+ *         Called at 1000Hz for smooth dimming
+ */
+void updateStagesDimLEDs(void);
+
+/**
  * @brief  Set a single LED state
  * @param  led: LED identifier
  * @param  state: GPIO_PIN_SET or GPIO_PIN_RESET
@@ -136,7 +178,7 @@ uint32_t flash_func_read_serialnumber(uint32_t address);
 void ledSet(uint8_t led, GPIO_PinState state, uint8_t color);
 
 /**
- * @brief  Set bi-color LED to red or green
+ * @brief  Set RGY 2-pin LED to red or green
  * @param  led: LED identifier
  * @param  color: 0 = red, 1 = green
  */
@@ -150,8 +192,8 @@ void ledSetRedGreen(uint8_t led, uint8_t color);
 void ledColorSet(uint8_t led, uint8_t color);
 
 /**
- * @brief  Clear all stage LEDs (8 LEDs)
- * @param  ics: If non-zero, also clear stage LEDs 9-16
+ * @brief  Clear all stage LEDs (3 LEDs)
+ * @param  ics: unused
  */
 void clearAllStagesLEDs(uint8_t ics);
 
