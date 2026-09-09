@@ -1,66 +1,487 @@
 #include "general.h"
 
-#ifdef DEBUG_MODE
-uint8_t tX_buff[TX_BUF_COL][TX_BUF_ROW], tx_buff_counter = 0, sendTxBufferMutex = 0;
-#endif
+/*============================================================================
+ *                         STATIC VARIABLES
+ *============================================================================*/
+
+/* Static variables for functions that need persistence */
+static uint32_t rotary_encoder_position[MAX_CHANNELS_NUM][MAX_ENCODER] = {0};
+static int32_t rotary_encoder_last_position[MAX_CHANNELS_NUM][MAX_ENCODER] = {0};
+static bool key_press_active[MAX_N_S_BTNS_NUM] = {0};
+static bool key_release_active[MAX_N_S_BTNS_NUM] = {0};
+static bool rotation_active[MAX_ENCODER] = {0};
 
 #ifdef DEBUG_MODE
-void debug_msg(uint8_t debug, uint8_t time, uint32_t counter,
-		char const *format, ...) {
-	if (debug == 0)
-		return;
-	static uint32_t debug_msg_counter = 0;
-	if (counter > 0) {
-		debug_msg_counter++;
-		if (debug_msg_counter > counter)
-			return;
-	}
-	va_list args;
-	int space = 0;
-	if (time) {
-		space = 5;
-		sprintf(((char*) tX_buff[tx_buff_counter]), "%lu)   ",
-				(uint32_t) (HAL_GetTick() / 1000));
-	}
-	va_start(args, format);
-	if (strlen(format) < TX_BUF_ROW)
-		vsprintf(((char*) tX_buff[tx_buff_counter]) + space, format, args);
-	else
-		vsprintf(((char*) tX_buff[tx_buff_counter]) + space,
-				">=TX_BUF_ROW strlen error", args);
-	rotateVal(&tx_buff_counter, 0, TX_BUF_COL - 1);
-	va_end(args);
-}
-#else
-#define debug_msg(...)
+static uint16_t debug_msg_counter = 0;
 #endif
 
-void myDelay(uint32_t time)
+/*============================================================================
+ *                         FUNCTION IMPLEMENTATIONS
+ *============================================================================*/
+
+/**
+ * @brief  Simple blocking microsecond delay using CPU cycles
+ * @param  delay: Delay in microseconds
+ * @note   Busy-wait delay, not suitable for precise timing
+ *         Approximate: 6 cycles per microsecond at 275 MHz
+ */
+void delay_us(uint32_t delay)
 {
-  uint32_t t = HAL_GetTick();
-  while(!isTimeElapsed(&t,time)){
-#ifdef DEBUG_MODE	  
-    sendTxBuffer(); 
-#endif	  
-    HAL_Delay(1);
-  }
+    uint32_t ticks = delay * 6U;  /* Approximate cycles per microsecond */
+    volatile uint32_t counter = 0;
+    while (counter < ticks) {
+        counter++;
+    }
 }
 
-void testButton(GPIO_TypeDef *port, uint16_t pin, uint8_t *glitch_protection,
-		uint8_t *pressed, uint8_t *last_pressed, uint8_t *just_pressed) {
-	if (HAL_GPIO_ReadPin(port, pin) == GPIO_PIN_RESET) {
-		*just_pressed = 1;
-		if (*glitch_protection == 0) {
-			*glitch_protection = 1;
-			*pressed = 0;
-			return;
-		}
-		if (*last_pressed == 1) {
-			*pressed = 0;
-		} else {
-			*last_pressed = *pressed = 1;
-		}
-	} else {
-		*glitch_protection = *just_pressed = *pressed = *last_pressed = 0;
-	}
+/**
+ * @brief  Check if a specified time interval has elapsed
+ * @param  tick: Pointer to the last recorded tick value (modified)
+ * @param  update_rate_ms: Time interval in milliseconds
+ * @return 1 if elapsed, 0 otherwise
+ */
+uint8_t isTimeElapsed(volatile uint32_t *tick, uint32_t update_rate_ms)
+{
+    uint32_t now = HAL_GetTick();
+    if ((*tick > now) || ((now - *tick) > update_rate_ms)) {
+        *tick = now;
+        return 1U;
+    }
+    return 0U;
 }
+
+/**
+ * @brief  Read rotary encoder position from timer counter
+ * @param  ch: Channel number
+ * @param  enc: Encoder type (FIRST_ENC, SECOND_ENC, THIRD_ENC, FOURTH_ENC)
+ * @param  jitter: If true, adds artificial jitter for testing
+ * @return Encoder position (counter value >> 2)
+ * @note   Encoder to timer mapping:
+ *         FIRST_ENC  -> TIM4  (F control)
+ *         SECOND_ENC -> TIM3  (S control)
+ *         THIRD_ENC  -> TIM23 (T control)
+ */
+uint32_t readRotaryEncoder(uint8_t ch, uint8_t enc, bool jitter)
+{
+    volatile uint32_t timer_value = 0;
+    
+    /* Select the appropriate timer based on encoder type */
+    switch(enc) {
+        case FIRST_ENC:   timer_value = TIM4->CNT;  break;
+        case SECOND_ENC:  timer_value = TIM3->CNT;  break;
+        case THIRD_ENC:   timer_value = TIM23->CNT; break;
+        default: return 0U;
+    }
+    
+    /* Artificial jitter for testing */
+    if (jitter) {
+        rotary_encoder_position[ch][enc] += 4U;
+        return 0U;
+    }
+    
+    /* Update position with hysteresis to filter noise */
+    if (timer_value >= rotary_encoder_position[ch][enc] + 4U) {
+        rotary_encoder_position[ch][enc] = timer_value;
+    } else if (timer_value + 4U <= rotary_encoder_position[ch][enc]) {
+        rotary_encoder_position[ch][enc] = timer_value;
+    }
+    
+    return (rotary_encoder_position[ch][enc] >> 2U);
+}
+
+/**
+ * @brief  Get rotary encoder rotation direction
+ * @param  ch: Channel number
+ * @param  enc: Encoder type (FIRST_ENC, SECOND_ENC, THIRD_ENC, FOURTH_ENC)
+ * @note   Updates global arrays: values_by_encoders, encoder_rotation
+ */
+void getRotaryEncoderDirection(uint8_t ch, uint8_t enc)
+{
+    /* Read current position and invert direction */
+    int32_t current_position = ((int32_t)readRotaryEncoder(ch, enc, false)) * -1;
+    
+    /* Update current value */
+    values_by_encoders[ch][enc] = current_position;
+    
+    /* Calculate rotation amount (positive = clockwise, negative = counter-clockwise) */
+    encoder_rotation[ch][enc] = rotary_encoder_last_position[ch][enc] - current_position;
+    rotary_encoder_last_position[ch][enc] = current_position;
+    
+    /* Handle rotation event signaling (edge detection) */
+    if (encoder_rotation[ch][enc] != 0) {
+        if (!rotation_active[enc]) {
+            rotation_active[enc] = true;
+            rotated_key_action[enc] = 1;
+            ++signals[ROTATION_SIG];
+        }
+    } else {
+        rotation_active[enc] = false;
+    }
+}
+
+/**
+ * @brief  Test key press/release state and trigger actions
+ * @param  port: GPIO port
+ * @param  pin: GPIO pin
+ * @param  key_num: Key number (index)
+ * @note   Updates global arrays for key events
+ */
+void testKey(GPIO_TypeDef *port, uint16_t pin, uint8_t key_num)
+{
+    /* Read the key state (active low) */
+    if (HAL_GPIO_ReadPin(port, pin) == GPIO_PIN_RESET) {
+        just_pressed_key[key_num] = 1;
+        just_released_key[key_num] = 0;
+    } else {
+        just_released_key[key_num] = 1;
+        just_pressed_key[key_num] = 0;
+    }
+    
+    /* Handle key press detection (rising edge) */
+    if (just_pressed_key[key_num]) {
+        if (!key_press_active[key_num]) {
+            key_press_active[key_num] = true;
+            if (secondary_btns && (key_num < MAX_SHIFTED_BTN_NUM)) {
+                pressed_shifted_key_action[key_num] = 1;
+                ++signals[SHIFTED_KEY_PRESS_SIG];
+            } else {
+                pressed_key_action[key_num] = 1;
+                ++signals[KEY_PRESS_SIG];
+            }
+        }
+    } else {
+        key_press_active[key_num] = false;
+    }
+    
+    /* Handle key release detection (falling edge) */
+    if (just_released_key[key_num]) {
+        if (!key_release_active[key_num]) {
+            key_release_active[key_num] = true;
+            if (secondary_btns && (key_num < MAX_SHIFTED_BTN_NUM)) {
+                released_shifted_key_action[key_num] = 1;
+                ++signals[SHIFTED_KEY_RELEASE_SIG];
+            } else {
+                released_key_action[key_num] = 1;
+                ++signals[KEY_RELEASE_SIG];
+            }
+        }
+    } else {
+        key_release_active[key_num] = false;
+    }
+}
+
+/*============================================================================
+ *                         STRING UTILITY FUNCTIONS
+ *============================================================================*/
+
+/**
+ * @brief  Check if a string contains only whitespace characters
+ * @param  str: Pointer to the string to check
+ * @return true if only whitespace or empty, false otherwise
+ * @note   Whitespace is defined as space character only (ASCII 0x20)
+ *         This function does not check for tab, newline, etc.
+ */
+bool isOnlyAsciiWhiteSpace(char *str)
+{
+    if (str == NULL) {
+        return true;  /* NULL string considered whitespace-only */
+    }
+    
+    char it = str[0];
+    do {
+        if (it == 0) {
+            return true;  /* End of string - only whitespace found */
+        }
+        it = *(str++);
+    } while (it == ' ');  /* Check for space character only */
+    
+    return false;  /* Found a non-whitespace character */
+}
+
+/*============================================================================
+ *                         HARDWARE ID FUNCTIONS
+ *============================================================================*/
+
+/**
+ * @brief  Read the unique device serial number from Flash
+ * @param  address: Offset address within the UDID area (0-11)
+ * @return 32-bit value from the specified address
+ * @note   The UDID (Unique Device ID) is 12 bytes starting at 0x1FF1E800
+ *         The STM32H7 has a 96-bit unique ID
+ */
+uint32_t flash_func_read_serialnumber(uint32_t address)
+{
+    /* Read a 32-bit word from the UDID area at the specified offset */
+    return *(uint32_t *)(UDID_START + address);
+}
+
+/*============================================================================
+ *                         LED CONTROL FUNCTIONS
+ *============================================================================*/
+
+/**
+ * @brief  Set a single LED state
+ * @param  led: LED identifier
+ * @param  state: GPIO_PIN_SET or GPIO_PIN_RESET
+ * @param  color: Color (GREEN_COLOR, RED_COLOR, YELLOW_COLOR, NO_COLOR)
+ */
+void ledSet(uint8_t led, GPIO_PinState state, uint8_t color)
+{
+    GPIO_PinState nstate = (GPIO_PinState)(1U - (uint8_t)state);
+    
+    switch(led) {
+        /* Simple single-pin LEDs (on/off only) */
+        CASE_LED_WRITE(STATUS_LED);
+        CASE_LED_WRITE(POWER_LED);
+        CASE_LED_WRITE(TEST_LED);
+        
+    default:
+        /* Bi-color LEDs (stage LEDs) - Green color */
+        if (color == GREEN_COLOR) {
+            switch(led) {
+                CASE_LED_WRITE_CG(STAGE1_LED);
+                CASE_LED_WRITE_CG(STAGE2_LED);
+                CASE_LED_WRITE_CG(STAGE3_LED);
+                default: break;
+            }
+        } 
+        /* Bi-color LEDs (stage LEDs) - Red color */
+        else if (color == RED_COLOR) {
+            switch(led) {
+                CASE_LED_WRITE_CR(STAGE1_LED);
+                CASE_LED_WRITE_CR(STAGE2_LED);
+                CASE_LED_WRITE_CR(STAGE3_LED);
+                default: break;
+            }
+        } 
+        /* Bi-color LEDs (stage LEDs) - Off */
+        else if (color == NO_COLOR) {
+            switch(led) {
+                CASE_LED_WRITE_CN(STAGE1_LED);
+                CASE_LED_WRITE_CN(STAGE2_LED);
+                CASE_LED_WRITE_CN(STAGE3_LED);
+                default: break;
+            }
+        }
+        break;
+    }
+}
+
+/**
+ * @brief  Set bi-color LED to red or green
+ * @param  led: LED identifier
+ * @param  color: 0 = red, 1 = green
+ */
+void ledSetRedGreen(uint8_t led, uint8_t color)
+{
+    if (color) {
+        ledSet(led, GPIO_PIN_SET, GREEN_COLOR);
+    } else {
+        ledSet(led, GPIO_PIN_SET, RED_COLOR);
+    }
+}
+
+/**
+ * @brief  Set LED color and update register
+ * @param  led: LED identifier
+ * @param  color: Color to set (GREEN_COLOR, RED_COLOR, YELLOW_COLOR, NO_COLOR)
+ */
+void ledColorSet(uint8_t led, uint8_t color)
+{
+    led_color[led] = color;
+    if (color != YELLOW_COLOR) {
+        ledSet(led, (GPIO_PinState)(color != NO_COLOR), color);
+    }
+}
+
+/**
+ * @brief  Clear all stage LEDs (8 LEDs)
+ * @param  ics: If non-zero, also clear stage LEDs 9-16 (commented out)
+ */
+void clearAllStagesLEDs(uint8_t ics)
+{
+    (void)ics;  /* Suppress unused parameter warning */
+    
+    for (uint8_t i = STAGE1_LED; i <= STAGE3_LED; ++i) {
+        led_reg[i] = LED_OFF;
+        ledColorSet(i, NO_COLOR);
+    }
+}
+
+/**
+ * @brief  Turn LED on with red color
+ * @param  led: LED identifier
+ */
+void ledOnRed(uint8_t led)
+{
+    led_reg[led] = LED_ON;
+    led_color[led] = RED_COLOR;
+    ledSet(led, GPIO_PIN_SET, RED_COLOR);
+}
+
+/**
+ * @brief  Turn LED on with green color
+ * @param  led: LED identifier
+ */
+void ledOnGreen(uint8_t led)
+{
+    led_reg[led] = LED_ON;
+    led_color[led] = GREEN_COLOR;
+    ledSet(led, GPIO_PIN_SET, GREEN_COLOR);
+}
+
+/**
+ * @brief  Turn LED on with yellow color
+ * @param  led: LED identifier
+ */
+void ledOnYellow(uint8_t led)
+{
+    led_reg[led] = LED_ON;
+    led_color[led] = YELLOW_COLOR;
+    ledSet(led, GPIO_PIN_SET, YELLOW_COLOR);
+}
+
+/*============================================================================
+ *                         TIMER FUNCTIONS
+ *============================================================================*/
+
+/**
+ * @brief  Set timer frequency by calculating optimal prescaler and auto-reload
+ * @param  htim: Timer handle
+ * @param  frq_Hz: Desired frequency in Hz
+ * @note   Uses TIMER_CLOCK_FREQUENCY_HZ (275 MHz for STM32H7)
+ *         Automatically adjusts prescaler if auto-reload exceeds 16-bit limit
+ */
+void timerSetFreq(TIM_HandleTypeDef *htim, uint32_t frq_Hz)
+{
+    const uint32_t clock_frq_hz = TIMER_CLOCK_FREQUENCY_HZ;
+    
+    debug_msg(DEBUG_SETUP, 1, 1, true, 
+              "timer_clock_frq=%luMHz\r\n", clock_frq_hz / 1000000UL);
+    
+    uint32_t prescaler = 0;
+    uint32_t auto_reload;
+    
+    /* Calculate prescaler and auto-reload values */
+    while (frq_Hz != 0) {
+        /* Calculate auto-reload: atr = clock / (frq * (prescaler + 1)) */
+        auto_reload = clock_frq_hz / frq_Hz / (prescaler + 1);
+        
+        /* Round up based on remainder (for better accuracy) */
+        if (((clock_frq_hz * 10UL) % (frq_Hz * (prescaler + 1))) >= 5) {
+            auto_reload++;
+        }
+        
+        /* Check if auto-reload fits in 16-bit timer */
+        if (auto_reload < 65536UL) {
+            auto_reload--;  /* Auto-reload is zero-based */
+            __HAL_TIM_SET_PRESCALER(htim, prescaler);
+            __HAL_TIM_SET_AUTORELOAD(htim, auto_reload);
+            
+            debug_msg(DEBUG_SETUP, 0, 3, true,
+                      "timerSetFreq=%luHz, prescaler=%lu, auto_reload=%lu\r\n",
+                      frq_Hz, prescaler, auto_reload);
+            return;
+        } else {
+            /* Increase prescaler if auto-reload exceeds 16-bit limit */
+            prescaler++;
+        }
+    }
+}
+
+/*============================================================================
+ *                         DEBUG FUNCTIONS
+ *============================================================================*/
+
+#ifdef DEBUG_MODE
+
+/**
+ * @brief  Debug message handler with formatting and buffering
+ * @param  debug: Debug level (enables/disables output)
+ * @param  time: If non-zero, prepend timestamp to message
+ * @param  counter: Message counter limit (0 = infinite)
+ * @param  send_now: If true, send buffer immediately
+ * @param  format: printf-style format string
+ * @param  ...: Variable arguments for format string
+ * @note   Uses global TX buffer and tx_buff_counter
+ *         Counter limits the number of messages printed
+ */
+void debug_msg(uint8_t debug, uint8_t time, uint16_t counter, bool send_now,
+               const char *format, ...)
+{
+    if (debug) {
+        /* Manage message counter */
+        if (counter) {
+            debug_msg_counter++;
+        } else {
+            debug_msg_counter = 0;
+        }
+        
+        /* Check if we should output this message */
+        if (debug_msg_counter <= counter) {
+            va_list args;
+            va_start(args, format);
+            
+            int space = 0;
+            
+            /* Add timestamp if requested */
+            if (time) {
+                space = 5;
+                sprintf((char*)tX_buff[tx_buff_counter], "%lu)   ",
+                        (HAL_GetTick()));
+            }
+            
+            /* Format the message with bounds checking */
+            if (strlen(format) < TX_BUF_ROW) {
+                vsprintf((char*)tX_buff[tx_buff_counter] + space, format, args);
+            } else {
+                vsprintf((char*)tX_buff[tx_buff_counter] + space,
+                        ">=TX_BUF_ROW strlen error", args);
+            }
+            
+            /* Rotate buffer index */
+            rotateVal(&tx_buff_counter, 0, TX_BUF_COL - 1);
+            va_end(args);
+            
+            /* Send buffer immediately if requested */
+            if (send_now) {
+                sendTxBuffer();
+            }
+        }
+    }
+}
+
+/**
+ * @brief  Convert a 64-bit number to binary string representation
+ * @param  n: Number to convert (up to 64 bits)
+ * @param  bits: Number of bits to display (1-64)
+ * @return Pointer to static buffer containing binary string
+ * @note   Skips leading zeros for cleaner output
+ */
+char *printBinary(uint64_t n, uint8_t bits)
+{
+    static char binaryStr[64 + 1];  /* 64 bits + null terminator */
+    binaryStr[64] = '\0';
+    
+    int i = 0;
+    bool significantPartStarted = false;
+    
+    /* Convert from MSB to LSB */
+    for (int bit = bits - 1; bit >= 0; bit--) {
+        uint64_t mask = 1ULL << bit;
+        if ((n & mask) != 0 || significantPartStarted) {
+            binaryStr[i++] = (char)('0' + ((n & mask) != 0));
+            significantPartStarted = true;
+        }
+    }
+    
+    /* If all bits were zero, output a single zero */
+    if (!significantPartStarted) {
+        binaryStr[i++] = '0';
+    }
+    
+    binaryStr[i] = '\0';
+    return binaryStr;
+}
+
+#endif /* DEBUG_MODE */
