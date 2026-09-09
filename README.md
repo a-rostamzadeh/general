@@ -126,9 +126,16 @@ int main(void) {
     
     // Initialize build definitions (optional)
     initializeBuildDefs();
-    
+
+    unsigned int mtime[2] = {0};
     while(1) {
         // Your application code
+        if(isTimeElapsed(&mtime[0], 1)){//1000Hz
+          //
+          driveYellowLeds();
+          updateStagesDimLEDs();
+         //
+       }
     }
 }
 ```
