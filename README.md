@@ -41,6 +41,7 @@ A comprehensive hardware abstraction and utility library for STM32H7 microcontro
 ### Output Control
 - **LED Management** - Single and RGY 2-pin LED control
 - **Color Support** - Red, Green, Yellow, and Off states
+- **Intensity Support** - Dimming LEDs
 - **Stage LED Arrays** - Efficient management of multiple LEDs
 - **LED Register Tracking** - Maintains LED state for consistency
 
