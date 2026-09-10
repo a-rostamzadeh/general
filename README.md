@@ -74,7 +74,6 @@ A comprehensive hardware abstraction and utility library for STM32H7 microcontro
 | **TIM3** | Encoder 1 (SECOND_ENC) | ⚠️ For encoders |
 | **TIM4** | Encoder 0 (FIRST_ENC) | ⚠️ For encoders |
 | **TIM23** | Encoder 2 (THIRD_ENC) | ⚠️ For encoders |
-| **TIM24** | Encoder 3 (FOURTH_ENC) | ⚠️ For encoders |
 | **USART** | Debug output | ⚠️ For debugging |
 | **DWT** | Cycle counter (for delays) | ⚠️ For delay_us() |
 
