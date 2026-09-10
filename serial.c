@@ -1,7 +1,7 @@
 /**
  * @file    serial.c
  * @brief   Serial communication and debug messaging implementation
- * @author  Your Name
+ * @author  Abolfazl Rostamzadeh
  * @date    2024
  * @version 1.0
  * 
