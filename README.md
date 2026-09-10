@@ -1023,9 +1023,9 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 📧 Contact
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/stm32h7-general-utils/issues)
+- **Issues**: [GitHub Issues](https://github.com/a-rostamzadeh/stm32h7-general-utils/issues)
 - **Email**: a.rostamzadeh@gmail.com
-- **Documentation**: [Wiki](https://github.com/yourusername/stm32h7-general-utils/wiki)
+- **Documentation**: [Wiki](https://github.com/a-rostamzadeh/stm32h7-general-utils/wiki)
 
 ---
 
