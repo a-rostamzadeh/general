@@ -254,14 +254,6 @@ extern volatile uint8_t led_reg[];
 extern volatile uint8_t led_color[];
 extern volatile uint8_t encoder_rotation_signal[];
 
-/* Debug buffer externals */
-#ifdef DEBUG_MODE
-extern char *tX_buff[];
-extern volatile uint8_t tx_buff_counter;
-extern volatile uint8_t TX_BUF_ROW;
-extern volatile uint8_t TX_BUF_COL;
-#endif
-
 #ifdef __cplusplus
 }
 #endif
