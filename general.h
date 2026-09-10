@@ -224,17 +224,6 @@ void ledOnYellow(uint8_t led);
 void timerSetFreq(TIM_HandleTypeDef *htim, uint32_t frq_Hz);
 
 #ifdef DEBUG_MODE
-/**
- * @brief  Debug message handler with formatting and buffering
- * @param  debug: Debug level (enables/disables output)
- * @param  time: If non-zero, prepend timestamp to message
- * @param  counter: Message counter limit (0 = infinite)
- * @param  send_now: If true, send buffer immediately
- * @param  format: printf-style format string
- * @param  ...: Variable arguments for format string
- */
-void debug_msg(uint8_t debug, uint8_t time, uint16_t counter, bool send_now,
-               const char *format, ...);
 
 /**
  * @brief  Convert a number to binary string (debugging)
