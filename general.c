@@ -545,62 +545,6 @@ void timerSetFreq(TIM_HandleTypeDef *htim, uint32_t frq_Hz)
 #ifdef DEBUG_MODE
 
 /**
- * @brief  Debug message handler with formatting and buffering
- * @param  debug: Debug level (enables/disables output)
- * @param  time: If non-zero, prepend timestamp to message
- * @param  counter: Message counter limit (0 = infinite)
- * @param  send_now: If true, send buffer immediately
- * @param  format: printf-style format string
- * @param  ...: Variable arguments for format string
- * @note   Uses global TX buffer and tx_buff_counter
- *         Counter limits the number of messages printed
- */
-void debug_msg(uint8_t debug, uint8_t time, uint16_t counter, bool send_now,
-               const char *format, ...)
-{
-    if (debug) {
-        /* Manage message counter */
-        if (counter) {
-            debug_msg_counter++;
-        } else {
-            debug_msg_counter = 0;
-        }
-        
-        /* Check if we should output this message */
-        if (debug_msg_counter <= counter) {
-            va_list args;
-            va_start(args, format);
-            
-            int space = 0;
-            
-            /* Add timestamp if requested */
-            if (time) {
-                space = 5;
-                sprintf((char*)tX_buff[tx_buff_counter], "%lu)   ",
-                        (HAL_GetTick()));
-            }
-            
-            /* Format the message with bounds checking */
-            if (strlen(format) < TX_BUF_ROW) {
-                vsprintf((char*)tX_buff[tx_buff_counter] + space, format, args);
-            } else {
-                vsprintf((char*)tX_buff[tx_buff_counter] + space,
-                        ">=TX_BUF_ROW strlen error", args);
-            }
-            
-            /* Rotate buffer index */
-            rotateVal(&tx_buff_counter, 0, TX_BUF_COL - 1);
-            va_end(args);
-            
-            /* Send buffer immediately if requested */
-            if (send_now) {
-                sendTxBuffer();
-            }
-        }
-    }
-}
-
-/**
  * @brief  Convert a 64-bit number to binary string representation
  * @param  n: Number to convert (up to 64 bits)
  * @param  bits: Number of bits to display (1-64)
